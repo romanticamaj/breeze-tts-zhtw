@@ -49,5 +49,7 @@ clearly better; do not flip this default based on text-level metrics).
 ## Performance expectations
 
 RTF ≈ 2.2–2.7 on RTX 5070 Ti (eager). Upstream's advertised RTF 0.32 needs the fast path:
-Linux + flash-attn wheel + ~14.4 GB VRAM (`BREEZE_TTS2_FAST=1`). No MPS/Mac port yet; upstream
-is CUDA-only and Docker on macOS has no GPU.
+Linux + flash-attn wheel + ~14.4 GB VRAM (`BREEZE_TTS2_FAST=1`). macOS: `app/server_mac.py`
+runs the eager path on MPS (RTF ≈ 3–10 on an M5 Pro) by monkeypatching `resolve_device` and
+tolerating `FastBreezeStreamingRuntime`'s CUDA-only check before importing server.py — the
+submodule stays untouched. The fast path stays CUDA-only; Docker on macOS still has no GPU.
