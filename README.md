@@ -121,7 +121,7 @@ Two Windows-only issues are handled automatically:
 |---|---|---|
 | `BREEZE_TTS2_MODEL_PATH` | `C:\ai-models\breeze-tts-2` | TTS weights (`/models/breeze-tts-2` in Docker) |
 | `BREEZE_ASR_MODEL_PATH` | `C:\ai-models\breeze-asr` | Breeze-ASR-25 for the in-process fallback |
-| `BREEZE_ASR_SERVICE_URL` | `""` | External Breeze ASR base URL (e.g. `http://127.0.0.1:8765`). Empty = always in-process |
+| `BREEZE_ASR_SERVICE_URL` | `""` | External Breeze ASR base URL (e.g. `http://127.0.0.1:7767`). Empty = always in-process |
 | `BREEZE_ASR_IDLE_UNLOAD_SEC` | `600` | Unload the in-process ASR after idle |
 | `BREEZE_TTS2_PORT` / `HOST` | `7772` / `0.0.0.0` | Bind |
 | `BREEZE_TTS2_FAST` | `0` | Upstream fast path (Linux + flash-attn wheel, ~14.4 GB VRAM) |
