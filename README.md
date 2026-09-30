@@ -89,7 +89,9 @@ docker logs -f breeze-tts-zhtw
 
 1. **要合成的段落** — 直接打繁體。勾著「繁 → 簡 自動轉換」（預設開），下方會即時預覽實際送給模型的簡體字。
    想加聲音表情就點文字框下方的 chips（`[笑]`、`[叹气]`、`(sigh)`…），會插在游標處。
-2. **聲音克隆（參考音檔）** — 拖一段乾淨人聲（5–15 秒、單一說話者）進去。上傳後會自動用 Breeze ASR
+2. **聲音克隆（參考音檔）** — 拖一段乾淨人聲（5–15 秒、單一說話者）進去。
+   wav / mp3 / flac / ogg 直接可用；m4a / aac（如 iPhone 語音備忘錄）會自動轉檔
+   （裝了 ffmpeg 就用 ffmpeg，macOS 上退回內建的 afconvert）。上傳後會自動用 Breeze ASR
    產生逐字稿填入「參考音檔的逐字稿」，請核對一下再往下（逐字稿越準、克隆越像）。
    不上傳參考音檔也能生成，改由「進階設定 → 語音指示」用文字描述音色（voice design）。
 3. **進階設定** — `CFG scale`：1.0 純克隆最自然；用語音指示（voice design / direction）時官方建議 4。
@@ -114,6 +116,24 @@ Two Windows-only issues are handled automatically:
 2. transformers' mmap shard loading segfaults on Windows (torch 2.9/2.11, safetensors
    0.7/0.8) → `app/breeze_runtime.py` preloads the state dict via `safe_open().get_tensor`
    when `sys.platform == "win32"` (force with `BREEZE_SAFE_LOAD=1/0`).
+
+## macOS (Apple Silicon) run
+
+```bash
+python3.12 -m venv .venv                 # 3.10–3.12; or: uv venv --python 3.12 .venv
+.venv/bin/pip install torch==2.9.1 torchaudio==2.9.1
+.venv/bin/pip install -r upstream/breeze-tts/requirements.txt -r requirements.txt
+hf download BreezeBlue/Breeze-TTS-2 --local-dir ~/ai-models/breeze-tts-2
+hf download MediaTek-Research/Breeze-ASR-25 --local-dir ~/ai-models/breeze-asr
+.venv/bin/python scripts/patch_checkpoint.py ~/ai-models/breeze-tts-2
+.venv/bin/python app/server_mac.py       # http://localhost:7772
+```
+
+`app/server_mac.py` runs the eager path on MPS (`/health` shows `device: mps:0`);
+the fast path stays CUDA-only. Weights default to `~/ai-models/…` — override with
+`BREEZE_TTS2_MODEL_PATH` / `BREEZE_ASR_MODEL_PATH`, or move both at once with
+`BREEZE_MAC_MODELS_ROOT`. The in-process ASR runs on MPS too. Measured RTF ≈ 3–10
+on an M5 Pro (48 GB); expect audio to take a few times its duration to generate.
 
 ## Configuration (env)
 

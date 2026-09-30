@@ -217,11 +217,20 @@ def tts(
         job_id = uuid.uuid4().hex[:12]
         reference_path: Path | None = None
         if has_ref:
+            import io
+
             suffix = Path(ref_audio.filename).suffix or ".wav"
-            reference_path = UPLOAD_DIR / f"ref_{job_id}{suffix}"
             payload = ref_audio.file.read()
             if not payload:
                 raise HTTPException(status_code=400, detail="Reference audio is empty.")
+            try:
+                sf.info(io.BytesIO(payload))
+            except Exception:
+                # Upstream loads the reference with soundfile too — normalise
+                # anything libsndfile can't open (m4a/aac/…) to WAV up front.
+                payload = _transcode_to_wav(payload, suffix)
+                suffix = ".wav"
+            reference_path = UPLOAD_DIR / f"ref_{job_id}{suffix}"
             reference_path.write_bytes(payload)
 
         request = {
@@ -311,7 +320,39 @@ def _asr_via_service(payload: bytes, filename: str) -> str:
         return json.loads(r.read()).get("text", "").strip()
 
 
-def _decode_to_16k(payload: bytes) -> np.ndarray:
+def _transcode_to_wav(payload: bytes, suffix: str) -> bytes:
+    """Decode formats libsndfile can't open (m4a/aac/…) to PCM16 WAV.
+
+    Uses ffmpeg when available (any platform), else macOS's built-in
+    afconvert. Sample rate and channel count are preserved — both callers
+    downmix/resample themselves.
+    """
+    import shutil
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        src = Path(td) / f"in{suffix or '.bin'}"
+        dst = Path(td) / "out.wav"
+        src.write_bytes(payload)
+        if shutil.which("ffmpeg"):
+            cmd = ["ffmpeg", "-y", "-i", str(src), "-c:a", "pcm_s16le", str(dst)]
+        elif sys.platform == "darwin":
+            cmd = ["afconvert", "-f", "WAVE", "-d", "LEI16", str(src), str(dst)]
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="無法解碼音檔（請用 wav / mp3 / flac / ogg，"
+                "或安裝 ffmpeg 以支援 m4a/aac）。",
+            )
+        proc = subprocess.run(cmd, capture_output=True, timeout=120)
+        if proc.returncode != 0 or not dst.is_file():
+            tail = proc.stderr.decode(errors="replace")[-300:]
+            raise HTTPException(status_code=400, detail=f"無法解碼音檔：{tail}")
+        return dst.read_bytes()
+
+
+def _decode_to_16k(payload: bytes, filename: str = "") -> np.ndarray:
     import io
 
     import torch
@@ -319,11 +360,10 @@ def _decode_to_16k(payload: bytes) -> np.ndarray:
 
     try:
         audio, sr = sf.read(io.BytesIO(payload), dtype="float32", always_2d=True)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"無法解碼音檔（請用 wav / mp3 / flac / ogg）：{exc}",
-        ) from exc
+    except Exception:
+        # libsndfile can't open it (e.g. iPhone 語音備忘錄的 m4a) — transcode.
+        wav = _transcode_to_wav(payload, Path(filename).suffix)
+        audio, sr = sf.read(io.BytesIO(wav), dtype="float32", always_2d=True)
     mono = audio.mean(axis=1)
     if sr != 16000:
         mono = AF.resample(torch.from_numpy(mono), sr, 16000).numpy()
@@ -395,7 +435,7 @@ def transcribe_ref(ref_audio: UploadFile = File(...)) -> JSONResponse:
     filename = Path(ref_audio.filename or "ref.wav").name
     started = time.perf_counter()
 
-    audio16k = _decode_to_16k(payload)
+    audio16k = _decode_to_16k(payload, filename)
     duration = len(audio16k) / 16000
     if duration > ASR_MAX_REF_SEC:
         raise HTTPException(
